@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, CartesianGrid,
@@ -6,14 +6,16 @@ import {
 import { stores, weeklyTrendData, weeklyIssueData, DIMENSION_WEEKLY_DATA, WEEK_LABELS } from '@/data/mockData'
 import {
   SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY,
-  WEAKNESS_DIMENSION_LABELS,
-  type ScenarioType, type TagType, type WeaknessDimension,
+  WEAKNESS_DIMENSION_LABELS, TRAINING_STATUS_LABELS, TRAINING_STATUS_COLORS,
+  type ScenarioType, type TagType, type WeaknessDimension, type TrainingStatus,
 } from '@/types'
 import { useStore } from '@/store/useStore'
+import { useLocation } from 'react-router-dom'
 import {
   GitCompareArrows, TrendingUp, AlertTriangle, Award,
   ChevronRight, ChevronLeft, Target, Stethoscope,
   BarChart3, User, Clock, Store, Sparkles,
+  Plus, CheckCircle2, CalendarDays, Pencil, Trash2, Save, X, ListTodo,
 } from 'lucide-react'
 
 const STORE_COLORS: Record<string, string> = {
@@ -49,13 +51,34 @@ const DIMENSION_KEYS: WeaknessDimension[] = [
 const INITIAL_SELECTED = ['s1', 's4']
 
 export default function Comparison() {
+  const location = useLocation()
+  const locState = (location.state as { drillDownStoreId?: string } | null) ?? {}
+
   const [selectedIds, setSelectedIds] = useState<string[]>(INITIAL_SELECTED)
   const [trendTab, setTrendTab] = useState<'satisfaction' | 'issues'>('satisfaction')
-  const [drillDownStoreId, setDrillDownStoreId] = useState<string | null>(null)
+  const [drillDownStoreId, setDrillDownStoreId] = useState<string | null>(locState.drillDownStoreId ?? null)
   const [selectedDimension, setSelectedDimension] = useState<WeaknessDimension | 'all'>('all')
+  const [selectedRecordingIds, setSelectedRecordingIds] = useState<Set<string>>(new Set())
+  const [editingTrainingId, setEditingTrainingId] = useState<string | null>(null)
+  const [editOwner, setEditOwner] = useState('')
+  const [editPlanDate, setEditPlanDate] = useState('')
+  const [editStatus, setEditStatus] = useState<TrainingStatus>('pending')
+  const [editNote, setEditNote] = useState('')
+  const [quickOwner, setQuickOwner] = useState('')
 
   const storeRecordings = useStore((s) => s.recordings)
   const storeAnnotations = useStore((s) => s.annotations)
+  const trainingItems = useStore((s) => s.trainingItems)
+  const addTrainingItem = useStore((s) => s.addTrainingItem)
+  const updateTrainingItem = useStore((s) => s.updateTrainingItem)
+  const removeTrainingItem = useStore((s) => s.removeTrainingItem)
+
+  useEffect(() => {
+    if (drillDownStoreId) {
+      setSelectedRecordingIds(new Set())
+      setEditingTrainingId(null)
+    }
+  }, [drillDownStoreId])
 
   const toggleStore = (id: string) => {
     setSelectedIds((prev) => {
@@ -282,6 +305,13 @@ export default function Comparison() {
     return [...annotatedRecs, ...otherRecs]
   }, [drillDownStoreId, selectedDimension, storeRecordings, storeAnnotations])
 
+  const storeTrainingItems = useMemo(() => {
+    if (!drillDownStoreId) return []
+    return trainingItems
+      .filter((t) => t.storeId === drillDownStoreId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [trainingItems, drillDownStoreId])
+
   const selectedStores = useMemo(
     () => stores.filter((s) => selectedIds.includes(s.id)),
     [selectedIds]
@@ -299,12 +329,65 @@ export default function Comparison() {
     return anns[0] ?? null
   }
 
+  const toggleRecordingSelection = (recordingId: string) => {
+    setSelectedRecordingIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(recordingId)) next.delete(recordingId)
+      else next.add(recordingId)
+      return next
+    })
+  }
+
+  const addSelectedToTraining = () => {
+    if (selectedRecordingIds.size === 0 || !drillDownStoreId) return
+    const defaultOwner = quickOwner.trim() || '待分配'
+    const defaultDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const dim: WeaknessDimension = selectedDimension === 'all' ? 'followup_guidance' : selectedDimension
+
+    Array.from(selectedRecordingIds).forEach((recId) => {
+      if (trainingItems.some((t) => t.recordingId === recId)) return
+      addTrainingItem({
+        storeId: drillDownStoreId,
+        recordingId: recId,
+        dimension: dim,
+        owner: defaultOwner,
+        planDate: defaultDate,
+        status: 'pending',
+        note: '',
+      })
+    })
+    setSelectedRecordingIds(new Set())
+  }
+
+  const startEdit = (itemId: string) => {
+    const item = trainingItems.find((t) => t.id === itemId)
+    if (!item) return
+    setEditingTrainingId(itemId)
+    setEditOwner(item.owner)
+    setEditPlanDate(item.planDate)
+    setEditStatus(item.status)
+    setEditNote(item.note)
+  }
+
+  const saveEdit = () => {
+    if (!editingTrainingId) return
+    updateTrainingItem(editingTrainingId, {
+      owner: editOwner.trim() || '待分配',
+      planDate: editPlanDate,
+      status: editStatus,
+      note: editNote,
+    })
+    setEditingTrainingId(null)
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="font-serif text-2xl font-bold text-slate-800">门店对比</h1>
-          <p className="text-sm text-slate-400 mt-1">多门店质检数据横向对比与培训诊断</p>
+          <p className="text-sm text-slate-400 mt-1">
+            {drillDownStore ? `${drillDownStore.name} · 培训诊断与动作跟进` : '多门店质检数据横向对比与培训诊断'}
+          </p>
         </div>
         {drillDownStore && (
           <button
@@ -524,6 +607,7 @@ export default function Comparison() {
                   const r = storeRecordings.find(rec => rec.id === a.recordingId)
                   return r && r.storeId === store.id && a.tags.some(t => TAG_CATEGORY[t as TagType] === 'negative')
                 }).length
+                const pendingTraining = trainingItems.filter(t => t.storeId === store.id && t.status !== 'completed').length
                 return (
                   <div
                     key={store.id}
@@ -543,6 +627,12 @@ export default function Comparison() {
                       <div className="flex items-end justify-between">
                         <span className="text-xs text-slate-400">问题标签数</span>
                         <span className="text-sm font-semibold text-slate-600">{issueCount}</span>
+                      </div>
+                      <div className="flex items-end justify-between">
+                        <span className="text-xs text-slate-400">待培训</span>
+                        <span className={`text-sm font-semibold ${pendingTraining > 0 ? 'text-orange-600' : 'text-slate-400'}`}>
+                          {pendingTraining}条
+                        </span>
                       </div>
                       <div className="flex items-end justify-between">
                         <span className="text-xs text-slate-400">健康分</span>
@@ -643,13 +733,16 @@ export default function Comparison() {
       ) : (
         <div className="space-y-6">
           <div className="bg-gradient-to-r from-primary-50 to-teal-50 rounded-xl p-6 border border-primary/20">
-            <div className="flex items-center gap-4">
-              <Store className="w-10 h-10 text-primary" />
-              <div>
-                <h2 className="font-serif text-xl font-bold text-slate-800">{drillDownStore?.name}</h2>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  区域：{drillDownStore?.region} · 健康分：{drillDownStore?.healthScore}分
-                </p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Store className="w-10 h-10 text-primary" />
+                <div>
+                  <h2 className="font-serif text-xl font-bold text-slate-800">{drillDownStore?.name}</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    区域：{drillDownStore?.region} · 健康分：{drillDownStore?.healthScore}分
+                    {storeTrainingItems.length > 0 && ` · 培训中：${storeTrainingItems.filter(t => t.status === 'in_progress').length}条 · 待开始：${storeTrainingItems.filter(t => t.status === 'pending').length}条`}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -780,6 +873,144 @@ export default function Comparison() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <ListTodo className="w-5 h-5 text-primary" />
+                <h3 className="font-serif text-lg font-semibold text-slate-700">培训动作清单</h3>
+                <span className="text-xs text-slate-400">共{storeTrainingItems.length}条</span>
+              </div>
+            </div>
+
+            {storeTrainingItems.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">
+                还没有培训安排，可在下方案例中勾选录音加入培训清单
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {storeTrainingItems.map((item) => {
+                  const rec = storeRecordings.find((r) => r.id === item.recordingId)
+                  const isEditing = editingTrainingId === item.id
+                  return (
+                    <div
+                      key={item.id}
+                      className="border border-slate-100 rounded-lg p-4 hover:bg-slate-50/50 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span
+                              className="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium text-white"
+                              style={{ backgroundColor: rec ? SCENARIO_COLORS[rec.scenario] : '#94a3b8' }}
+                            >
+                              {rec ? SCENARIO_LABELS[rec.scenario] : '场景'}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {WEAKNESS_DIMENSION_LABELS[item.dimension]}
+                            </span>
+                            <span className="text-xs text-slate-400">·</span>
+                            <span className="text-xs text-slate-500">{rec?.doctorCode ?? '—'}</span>
+                            <span className="text-xs text-slate-400">·</span>
+                            <span className="text-xs text-slate-400">{rec?.date ?? ''}</span>
+                          </div>
+                          {rec && (
+                            <p className="text-xs text-slate-500 mb-2 line-clamp-1">
+                              {rec.summary.patientConcern}
+                            </p>
+                          )}
+
+                          {isEditing ? (
+                            <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-100">
+                              <div>
+                                <label className="text-[10px] text-slate-400 mb-1 block">负责人</label>
+                                <input
+                                  type="text"
+                                  value={editOwner}
+                                  onChange={(e) => setEditOwner(e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-400 mb-1 block">计划日期</label>
+                                <input
+                                  type="date"
+                                  value={editPlanDate}
+                                  onChange={(e) => setEditPlanDate(e.target.value)}
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-400 mb-1 block">状态</label>
+                                <select
+                                  value={editStatus}
+                                  onChange={(e) => setEditStatus(e.target.value as TrainingStatus)}
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                >
+                                  {(['pending', 'in_progress', 'completed'] as TrainingStatus[]).map((s) => (
+                                    <option key={s} value={s}>{TRAINING_STATUS_LABELS[s]}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex items-end gap-1">
+                                <button
+                                  onClick={saveEdit}
+                                  className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-primary text-white rounded text-xs font-medium hover:bg-primary-dark transition-colors"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  保存
+                                </button>
+                                <button
+                                  onClick={() => setEditingTrainingId(null)}
+                                  className="px-2 py-1.5 bg-slate-100 text-slate-500 rounded text-xs hover:bg-slate-200 transition-colors"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3 text-xs">
+                              <div className="flex items-center gap-1">
+                                <User className="w-3 h-3 text-slate-300" />
+                                <span className="text-slate-600">{item.owner}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <CalendarDays className="w-3 h-3 text-slate-300" />
+                                <span className="text-slate-600">{item.planDate}</span>
+                              </div>
+                              <span
+                                className="inline-block px-2 py-0.5 rounded text-[11px] font-medium text-white"
+                                style={{ backgroundColor: TRAINING_STATUS_COLORS[item.status] }}
+                              >
+                                {TRAINING_STATUS_LABELS[item.status]}
+                              </span>
+                              {item.note && (
+                                <span className="text-slate-400 ml-2">备注：{item.note}</span>
+                              )}
+                              <div className="ml-auto flex items-center gap-1">
+                                <button
+                                  onClick={() => startEdit(item.id)}
+                                  className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 rounded transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => removeTrainingItem(item.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 <Stethoscope className="w-5 h-5 text-primary" />
@@ -787,26 +1018,68 @@ export default function Comparison() {
                   {selectedDimension === 'all' ? '代表接诊记录' : `${WEAKNESS_DIMENSION_LABELS[selectedDimension]} · 相关案例`}
                 </h3>
               </div>
-              <span className="text-xs text-slate-400">
-                {selectedDimension === 'all'
-                  ? `共 ${storeRecordings.filter(r => r.storeId === drillDownStoreId).length} 条，最新标注优先`
-                  : `筛选到 ${drillDownRecordings.length} 条相关记录`
-                }
-              </span>
+              <div className="flex items-center gap-2">
+                {selectedRecordingIds.size > 0 && (
+                  <>
+                    <input
+                      type="text"
+                      value={quickOwner}
+                      onChange={(e) => setQuickOwner(e.target.value)}
+                      placeholder="默认负责人（可选）"
+                      className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary w-32"
+                    />
+                    <button
+                      onClick={addSelectedToTraining}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent/90 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      加入培训清单（{selectedRecordingIds.size}）
+                    </button>
+                  </>
+                )}
+                <span className="text-xs text-slate-400">
+                  {selectedDimension === 'all'
+                    ? `共 ${storeRecordings.filter(r => r.storeId === drillDownStoreId).length} 条，最新标注优先`
+                    : `筛选到 ${drillDownRecordings.length} 条相关记录`
+                  }
+                </span>
+              </div>
             </div>
             <div className="space-y-3">
               {drillDownRecordings.map((rec) => {
                 const latestAnn = getRecordingLatestAnnotation(rec.id)
                 const hasNegative = latestAnn?.tags.some(t => TAG_CATEGORY[t as TagType] === 'negative') ?? false
                 const tagsToShow = latestAnn?.tags ?? []
+                const isSelected = selectedRecordingIds.has(rec.id)
+                const inTraining = trainingItems.some((t) => t.recordingId === rec.id)
                 return (
                   <div
                     key={rec.id}
                     className={`rounded-lg border p-4 transition-all hover:shadow-sm ${
-                      hasNegative ? 'border-red-100 bg-red-50/30' : 'border-slate-100'
+                      isSelected
+                        ? 'border-accent bg-accent/5'
+                        : hasNegative ? 'border-red-100 bg-red-50/30' : 'border-slate-100'
                     }`}
                   >
                     <div className="flex items-start gap-3">
+                      <div className="shrink-0 pt-0.5">
+                        {inTraining ? (
+                          <div className="w-5 h-5 rounded bg-emerald-100 flex items-center justify-center" title="已在培训清单">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => toggleRecordingSelection(rec.id)}
+                            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                              isSelected
+                                ? 'bg-accent border-accent text-white'
+                                : 'border-slate-300 hover:border-accent'
+                            }`}
+                          >
+                            {isSelected && <CheckCircle2 className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span
@@ -831,6 +1104,12 @@ export default function Comparison() {
                             <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                               <Sparkles className="w-2.5 h-2.5" />
                               已标注
+                            </span>
+                          )}
+                          {inTraining && (
+                            <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                              <ListTodo className="w-2.5 h-2.5" />
+                              培训中
                             </span>
                           )}
                         </div>

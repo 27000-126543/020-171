@@ -110,3 +110,29 @@ export const TAG_CATEGORY: Record<TagType, 'positive' | 'negative'> = {
 }
 
 export const PATIENT_TYPES = ['初诊患者', '复诊患者', '转诊患者', '家属陪同']
+
+export type TrainingStatus = 'pending' | 'in_progress' | 'completed'
+
+export const TRAINING_STATUS_LABELS: Record<TrainingStatus, string> = {
+  pending: '待开始',
+  in_progress: '进行中',
+  completed: '已完成',
+}
+
+export const TRAINING_STATUS_COLORS: Record<TrainingStatus, string> = {
+  pending: '#94a3b8',
+  in_progress: '#F97316',
+  completed: '#10b981',
+}
+
+export interface TrainingItem {
+  id: string
+  storeId: string
+  recordingId: string
+  dimension: WeaknessDimension
+  owner: string
+  planDate: string
+  status: TrainingStatus
+  note: string
+  createdAt: string
+}

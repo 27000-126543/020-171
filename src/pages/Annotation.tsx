@@ -5,7 +5,7 @@ import { stores } from '@/data/mockData'
 import {
   Play, Pause, SkipForward, ChevronRight, Check, Clock, User, Building2,
   FileText, Send, AlertCircle, ThumbsUp, HelpCircle, Stethoscope, Target,
-  Filter, Search, ChevronDown, ListOrdered, SkipBack,
+  Filter, Search, ChevronDown, ListOrdered, SkipBack, CheckCircle2,
 } from 'lucide-react'
 
 const SCENARIO_COLORS: Record<ScenarioType, string> = {
@@ -136,6 +136,7 @@ export default function Annotation() {
       setCurrentRecording(firstPending.id)
       return true
     }
+    setCurrentRecording(null)
     return false
   }, [filteredRecordings, currentRecordingId, setCurrentRecording])
 
@@ -397,9 +398,27 @@ export default function Annotation() {
       <div className="flex-1 overflow-y-auto bg-bg">
         {!selectedRecording ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400">
-            <FileText className="w-16 h-16 mb-4 text-slate-300" />
-            <p className="text-lg font-serif">请从左侧选择一条录音</p>
-            <p className="text-sm mt-1">选择录音后可查看详情并进行标注</p>
+            {pendingRecordings.length === 0 && filteredRecordings.length > 0 && (
+              <>
+                <CheckCircle2 className="w-16 h-16 mb-4 text-emerald-300" />
+                <p className="text-lg font-serif text-emerald-700">当前筛选条件下已没有待标注录音</p>
+                <p className="text-sm mt-1">您可以调整筛选条件或切换到已标注状态查看记录</p>
+              </>
+            )}
+            {filteredRecordings.length === 0 && (
+              <>
+                <FileText className="w-16 h-16 mb-4 text-slate-300" />
+                <p className="text-lg font-serif">当前筛选条件下没有匹配的录音</p>
+                <p className="text-sm mt-1">请调整筛选条件重新查找</p>
+              </>
+            )}
+            {pendingRecordings.length > 0 && filteredRecordings.length > 0 && (
+              <>
+                <FileText className="w-16 h-16 mb-4 text-slate-300" />
+                <p className="text-lg font-serif">请从左侧选择一条录音</p>
+                <p className="text-sm mt-1">选择录音后可查看详情并进行标注</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="p-8 space-y-6">

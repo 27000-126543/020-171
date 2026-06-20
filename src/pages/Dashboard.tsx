@@ -1,9 +1,10 @@
 import { useMemo, useState, Fragment } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts'
 import { stores, scriptEntries } from '@/data/mockData'
 import { SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY, type ScenarioType, type TagType } from '@/types'
 import { useStore } from '@/store/useStore'
-import { ClipboardList, AlertTriangle, FileAudio, BookPlus } from 'lucide-react'
+import { ClipboardList, AlertTriangle, FileAudio, BookPlus, ChevronRight, GitCompareArrows, ClipboardCheck } from 'lucide-react'
 
 const SCENARIO_COLORS: Record<ScenarioType, string> = {
   implant: '#0D9488',
@@ -13,6 +14,7 @@ const SCENARIO_COLORS: Record<ScenarioType, string> = {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const storeRecordings = useStore((s) => s.recordings)
   const storeAnnotations = useStore((s) => s.annotations)
 
@@ -95,9 +97,11 @@ export default function Dashboard() {
         const rec = recordingMap.get(a.recordingId)
         return {
           ...a,
+          storeId: rec?.storeId,
           scenario: rec?.scenario,
           scenarioLabel: rec ? SCENARIO_LABELS[rec.scenario] : '-',
           storeName: rec?.storeName ?? '-',
+          doctorCode: rec?.doctorCode ?? '',
         }
       })
   }, [storeAnnotations])
@@ -316,6 +320,7 @@ export default function Dashboard() {
                 <th className="text-left py-3 px-3 text-slate-400 font-medium">标注人</th>
                 <th className="text-left py-3 px-3 text-slate-400 font-medium">时间</th>
                 <th className="text-left py-3 px-3 text-slate-400 font-medium">建议</th>
+                <th className="text-left py-3 px-3 text-slate-400 font-medium w-44">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -334,25 +339,68 @@ export default function Dashboard() {
                   <td className="py-3 px-3">
                     <div className="flex flex-wrap gap-1">
                       {a.tags.map((tag) => (
-                        <span
+                        <button
                           key={tag}
-                          className={`inline-block px-2 py-0.5 rounded text-xs ${
+                          onClick={() =>
+                            navigate('/ledger', {
+                              state: {
+                                filterStore: a.storeId ?? 'all',
+                                filterTag: tag,
+                                filterScenario: 'all',
+                                filterKeyword: '',
+                              },
+                            })
+                          }
+                          className={`inline-block px-2 py-0.5 rounded text-xs hover:opacity-80 transition-opacity ${
                             TAG_CATEGORY[tag as TagType] === 'positive'
                               ? 'bg-emerald-50 text-emerald-700'
                               : 'bg-red-50 text-red-600'
                           }`}
                         >
                           {TAG_LABELS[tag as TagType]}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-slate-600">{a.storeName}</td>
+                  <td className="py-3 px-3 text-slate-600 font-medium">{a.storeName}</td>
                   <td className="py-3 px-3 text-slate-500">{a.annotator}</td>
                   <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
                     {new Date(a.createdAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                   </td>
                   <td className="py-3 px-3 text-slate-500 max-w-xs truncate">{a.suggestion}</td>
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-1">
+                      {a.storeId && (
+                        <button
+                          onClick={() =>
+                            navigate('/comparison', { state: { drillDownStoreId: a.storeId } })
+                          }
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors"
+                          title="跳转到门店详情"
+                        >
+                          <GitCompareArrows className="w-3 h-3" />
+                          门店
+                        </button>
+                      )}
+                      <button
+                        onClick={() =>
+                          navigate('/ledger', {
+                            state: {
+                              filterStore: a.storeId ?? 'all',
+                              filterScenario: (a.scenario as ScenarioType) ?? 'all',
+                              filterTag: 'all',
+                              filterKeyword: a.suggestion.slice(0, 8),
+                            },
+                          })
+                        }
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs font-medium transition-colors"
+                        title="跳转到台账筛选结果"
+                      >
+                        <ClipboardCheck className="w-3 h-3" />
+                        台账
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
