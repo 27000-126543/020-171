@@ -4,7 +4,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis
 import { stores, scriptEntries } from '@/data/mockData'
 import { SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY, type ScenarioType, type TagType } from '@/types'
 import { useStore } from '@/store/useStore'
-import { ClipboardList, AlertTriangle, FileAudio, BookPlus, ChevronRight, GitCompareArrows, ClipboardCheck } from 'lucide-react'
+import {
+  ClipboardList, AlertTriangle, FileAudio, BookPlus, ChevronRight, GitCompareArrows,
+  ClipboardCheck, ListTodo, UserX, Clock as ClockIcon, AlertCircle, FileText,
+} from 'lucide-react'
+
+type TodoType = 'pending_annotation' | 'unassigned' | 'near_deadline' | 'overdue'
 
 const SCENARIO_COLORS: Record<ScenarioType, string> = {
   implant: '#0D9488',
@@ -13,10 +18,39 @@ const SCENARIO_COLORS: Record<ScenarioType, string> = {
   cleaning: '#3B82F6',
 }
 
+const TODO_META: Record<TodoType, { label: string; icon: any; badge: string; dot: string }> = {
+  pending_annotation: {
+    label: '待标注录音',
+    icon: FileAudio,
+    badge: 'bg-violet-500',
+    dot: 'bg-violet-400',
+  },
+  unassigned: {
+    label: '未分配负责人',
+    icon: UserX,
+    badge: 'bg-slate-500',
+    dot: 'bg-slate-400',
+  },
+  near_deadline: {
+    label: '3天内到期',
+    icon: ClockIcon,
+    badge: 'bg-amber-500',
+    dot: 'bg-amber-400',
+  },
+  overdue: {
+    label: '逾期未跟进',
+    icon: AlertCircle,
+    badge: 'bg-red-500',
+    dot: 'bg-red-400',
+  },
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const storeRecordings = useStore((s) => s.recordings)
   const storeAnnotations = useStore((s) => s.annotations)
+  const trainingItems = useStore((s) => s.trainingItems)
+  const setCurrentRecording = useStore((s) => s.setCurrentRecording)
 
   const weeklyInspectionTotal = useMemo(() => storeRecordings.length, [storeRecordings])
 
@@ -107,6 +141,120 @@ export default function Dashboard() {
   }, [storeAnnotations])
 
   const [hoveredCell, setHoveredCell] = useState<{ storeId: string; tag: TagType } | null>(null)
+
+  const operatorTodos = useMemo(() => {
+    type Row = {
+      type: TodoType
+      id: string
+      title: string
+      meta: string
+      primary: string
+      action: () => void
+    }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const in3Days = new Date(today.getTime() + 3 * 24 * 60 * 60 * 1000)
+    const rows: Row[] = []
+
+    const pendingRec = storeRecordings.filter((r) => !r.isAnnotated).slice(0, 5)
+    pendingRec.forEach((r) => {
+      rows.push({
+        type: 'pending_annotation',
+        id: `pa_${r.id}`,
+        title: `${SCENARIO_LABELS[r.scenario]} · ${r.doctorCode}`,
+        meta: `${r.date} · ${Math.floor(r.duration / 60)}分${r.duration % 60}秒`,
+        primary: r.storeName ?? '',
+        action: () => {
+          setCurrentRecording(r.id)
+          navigate('/annotation')
+        },
+      })
+    })
+
+    trainingItems
+      .filter((t) => t.status !== 'completed' && (t.owner === '待分配' || !t.owner.trim()))
+      .slice(0, 5)
+      .forEach((t) => {
+        const r = storeRecordings.find((x) => x.id === t.recordingId)
+        rows.push({
+          type: 'unassigned',
+          id: `ua_${t.id}`,
+          title: `${SCENARIO_LABELS[r?.scenario ?? 'implant']} · ${r?.doctorCode ?? '-'}`,
+          meta: `计划：${t.planDate}`,
+          primary: r?.storeName ?? '',
+          action: () =>
+            navigate('/comparison', {
+              state: { drillDownStoreId: t.storeId, highlightRecordingId: t.recordingId },
+            }),
+        })
+      })
+
+    trainingItems
+      .filter((t) => {
+        if (t.status === 'completed') return false
+        const d = new Date(t.planDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() >= today.getTime() && d.getTime() <= in3Days.getTime()
+      })
+      .slice(0, 5)
+      .forEach((t) => {
+        const r = storeRecordings.find((x) => x.id === t.recordingId)
+        rows.push({
+          type: 'near_deadline',
+          id: `nd_${t.id}`,
+          title: `${t.owner} · ${SCENARIO_LABELS[r?.scenario ?? 'implant']}`,
+          meta: `计划：${t.planDate}`,
+          primary: r?.storeName ?? '',
+          action: () =>
+            navigate('/comparison', {
+              state: { drillDownStoreId: t.storeId, highlightRecordingId: t.recordingId },
+            }),
+        })
+      })
+
+    trainingItems
+      .filter((t) => {
+        if (t.status === 'completed') return false
+        const d = new Date(t.planDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() < today.getTime()
+      })
+      .slice(0, 5)
+      .forEach((t) => {
+        const r = storeRecordings.find((x) => x.id === t.recordingId)
+        rows.push({
+          type: 'overdue',
+          id: `ov_${t.id}`,
+          title: `${t.owner} · ${SCENARIO_LABELS[r?.scenario ?? 'implant']}`,
+          meta: `逾期：${t.planDate}`,
+          primary: r?.storeName ?? '',
+          action: () =>
+            navigate('/comparison', {
+              state: { drillDownStoreId: t.storeId, highlightRecordingId: t.recordingId },
+            }),
+        })
+      })
+
+    const counts: Record<TodoType, number> = {
+      pending_annotation: pendingRec.length,
+      unassigned: trainingItems.filter(
+        (t) => t.status !== 'completed' && (t.owner === '待分配' || !t.owner.trim())
+      ).length,
+      near_deadline: trainingItems.filter((t) => {
+        if (t.status === 'completed') return false
+        const d = new Date(t.planDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() >= today.getTime() && d.getTime() <= in3Days.getTime()
+      }).length,
+      overdue: trainingItems.filter((t) => {
+        if (t.status === 'completed') return false
+        const d = new Date(t.planDate)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() < today.getTime()
+      }).length,
+    }
+    return { rows, counts }
+  }, [storeRecordings, trainingItems, setCurrentRecording, navigate])
 
   const overviewCards = [
     {
@@ -308,6 +456,67 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-8 animate-fade-in-up animation-delay-350">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <ListTodo className="w-5 h-5 text-primary" />
+            <h2 className="font-serif text-lg font-semibold text-slate-700">运营待办</h2>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            {(Object.keys(TODO_META) as TodoType[]).map((t) => (
+              <div key={t} className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${TODO_META[t].dot}`} />
+                <span className="text-slate-500">{TODO_META[t].label}</span>
+                <span className={`px-1.5 py-0.5 rounded text-white font-semibold ${TODO_META[t].badge}`}>
+                  {operatorTodos.counts[t]}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {operatorTodos.rows.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            暂无待办事项，干得漂亮 👍
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {operatorTodos.rows.map((row) => {
+              const meta = TODO_META[row.type]
+              const Icon = meta.icon
+              return (
+                <button
+                  key={row.id}
+                  onClick={row.action}
+                  className="flex items-start gap-3 p-3 rounded-lg border border-slate-100 hover:border-primary/40 hover:bg-primary/5 transition-colors text-left group"
+                >
+                  <div
+                    className={`p-2 rounded-lg ${meta.badge} shrink-0`}
+                  >
+                    <Icon className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-medium text-slate-700 truncate">{row.title}</span>
+                      <span
+                        className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium text-white ${meta.badge}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      {row.primary && <span className="truncate">{row.primary}</span>}
+                      {row.primary && <span>·</span>}
+                      <span className="truncate">{row.meta}</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-primary shrink-0 mt-1 transition-colors" />
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm p-6 animate-fade-in-up animation-delay-400">
         <h2 className="font-serif text-lg font-semibold text-slate-700 mb-4">最近标注记录</h2>
         <div className="overflow-x-auto">
@@ -348,6 +557,8 @@ export default function Dashboard() {
                                 filterTag: tag,
                                 filterScenario: 'all',
                                 filterKeyword: '',
+                                highlightAnnotationId: a.id,
+                                highlightRecordingId: a.recordingId,
                               },
                             })
                           }
@@ -373,10 +584,15 @@ export default function Dashboard() {
                       {a.storeId && (
                         <button
                           onClick={() =>
-                            navigate('/comparison', { state: { drillDownStoreId: a.storeId } })
+                            navigate('/comparison', {
+                              state: {
+                                drillDownStoreId: a.storeId,
+                                highlightRecordingId: a.recordingId,
+                              },
+                            })
                           }
                           className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors"
-                          title="跳转到门店详情"
+                          title="跳转到门店详情并定位该录音"
                         >
                           <GitCompareArrows className="w-3 h-3" />
                           门店
@@ -390,11 +606,13 @@ export default function Dashboard() {
                               filterScenario: (a.scenario as ScenarioType) ?? 'all',
                               filterTag: 'all',
                               filterKeyword: a.suggestion.slice(0, 8),
+                              highlightAnnotationId: a.id,
+                              highlightRecordingId: a.recordingId,
                             },
                           })
                         }
                         className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs font-medium transition-colors"
-                        title="跳转到台账筛选结果"
+                        title="跳转到台账并定位该记录"
                       >
                         <ClipboardCheck className="w-3 h-3" />
                         台账

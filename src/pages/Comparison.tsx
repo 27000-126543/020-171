@@ -16,6 +16,7 @@ import {
   ChevronRight, ChevronLeft, Target, Stethoscope,
   BarChart3, User, Clock, Store, Sparkles,
   Plus, CheckCircle2, CalendarDays, Pencil, Trash2, Save, X, ListTodo,
+  Star, Play, FileText, ArrowUpRight, ArrowDownRight, Minus, FileCheck2,
 } from 'lucide-react'
 
 const STORE_COLORS: Record<string, string> = {
@@ -52,7 +53,15 @@ const INITIAL_SELECTED = ['s1', 's4']
 
 export default function Comparison() {
   const location = useLocation()
-  const locState = (location.state as { drillDownStoreId?: string } | null) ?? {}
+  const locState = (location.state as { drillDownStoreId?: string; highlightRecordingId?: string } | null) ?? {}
+
+  const storeRecordings = useStore((s) => s.recordings)
+  const storeAnnotations = useStore((s) => s.annotations)
+  const trainingItems = useStore((s) => s.trainingItems)
+  const addTrainingItem = useStore((s) => s.addTrainingItem)
+  const updateTrainingItem = useStore((s) => s.updateTrainingItem)
+  const removeTrainingItem = useStore((s) => s.removeTrainingItem)
+  const completeTrainingItem = useStore((s) => s.completeTrainingItem)
 
   const [selectedIds, setSelectedIds] = useState<string[]>(INITIAL_SELECTED)
   const [trendTab, setTrendTab] = useState<'satisfaction' | 'issues'>('satisfaction')
@@ -65,13 +74,12 @@ export default function Comparison() {
   const [editStatus, setEditStatus] = useState<TrainingStatus>('pending')
   const [editNote, setEditNote] = useState('')
   const [quickOwner, setQuickOwner] = useState('')
-
-  const storeRecordings = useStore((s) => s.recordings)
-  const storeAnnotations = useStore((s) => s.annotations)
-  const trainingItems = useStore((s) => s.trainingItems)
-  const addTrainingItem = useStore((s) => s.addTrainingItem)
-  const updateTrainingItem = useStore((s) => s.updateTrainingItem)
-  const removeTrainingItem = useStore((s) => s.removeTrainingItem)
+  const [completingTrainingId, setCompletingTrainingId] = useState<string | null>(null)
+  const [completeResultNote, setCompleteResultNote] = useState('')
+  const [completeFollowUpId, setCompleteFollowUpId] = useState<string>('')
+  const [completeEffectScore, setCompleteEffectScore] = useState<number>(4)
+  const [completePostScore, setCompletePostScore] = useState<number>(3.5)
+  const [highlightRecordingId] = useState<string | null>(locState.highlightRecordingId ?? null)
 
   useEffect(() => {
     if (drillDownStoreId) {
@@ -379,6 +387,59 @@ export default function Comparison() {
     })
     setEditingTrainingId(null)
   }
+
+  const startComplete = (itemId: string) => {
+    const item = trainingItems.find((t) => t.id === itemId)
+    if (!item) return
+    const originRec = storeRecordings.find((r) => r.id === item.recordingId)
+    const preScore = originRec ? originRec.satisfactionScore : null
+    if (preScore !== null && item.preScore === null) {
+      updateTrainingItem(itemId, { preScore })
+    }
+    setCompletingTrainingId(itemId)
+    setCompleteResultNote(item.resultNote)
+    setCompleteFollowUpId(item.followUpRecordingId ?? '')
+    setCompleteEffectScore(item.effectScore ?? 4)
+    setCompletePostScore(item.postScore ?? preScore ?? 3.5)
+  }
+
+  const saveComplete = () => {
+    if (!completingTrainingId) return
+    completeTrainingItem(completingTrainingId, {
+      resultNote: completeResultNote.trim(),
+      followUpRecordingId: completeFollowUpId || null,
+      effectScore: completeEffectScore,
+      postScore: completePostScore,
+    })
+    setCompletingTrainingId(null)
+  }
+
+  const trainingEffectSummary = useMemo(() => {
+    if (!drillDownStoreId) return null
+    const byDim = new Map<WeaknessDimension, { pre: number[]; post: number[]; effect: number[] }>()
+    DIMENSION_KEYS.forEach((d) => byDim.set(d, { pre: [], post: [], effect: [] }))
+    storeTrainingItems.forEach((item) => {
+      if (item.status !== 'completed') return
+      const bucket = byDim.get(item.dimension)
+      if (!bucket) return
+      if (item.preScore !== null) bucket.pre.push(item.preScore)
+      if (item.postScore !== null) bucket.post.push(item.postScore)
+      if (item.effectScore !== null) bucket.effect.push(item.effectScore)
+    })
+    const arr = DIMENSION_KEYS.map((d) => {
+      const b = byDim.get(d)!
+      const avg = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
+      return {
+        dimension: d,
+        pre: avg(b.pre),
+        post: avg(b.post),
+        effect: avg(b.effect),
+        count: b.pre.length,
+        delta: avg(b.post) - avg(b.pre),
+      }
+    })
+    return arr
+  }, [storeTrainingItems, drillDownStoreId])
 
   return (
     <div className="p-8">
@@ -872,6 +933,69 @@ export default function Comparison() {
             </ResponsiveContainer>
           </div>
 
+          {trainingEffectSummary && trainingEffectSummary.some((x) => x.count > 0) && (
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                <h3 className="font-serif text-lg font-semibold text-slate-700">培训效果复盘</h3>
+                <span className="text-xs text-slate-400">已完成培训项前后对比</span>
+              </div>
+              <div className="grid grid-cols-5 gap-3">
+                {trainingEffectSummary.map((t) => {
+                  const hasData = t.count > 0
+                  const trend = hasData ? (t.delta > 0.1 ? 'up' : t.delta < -0.1 ? 'down' : 'flat') : 'none'
+                  return (
+                    <div
+                      key={t.dimension}
+                      className={`rounded-lg p-3 border transition-colors cursor-pointer ${
+                        selectedDimension === t.dimension
+                          ? 'border-primary bg-primary/5'
+                          : hasData
+                          ? 'border-slate-100 hover:bg-slate-50/70'
+                          : 'border-slate-100 bg-slate-50/50 opacity-60'
+                      }`}
+                      onClick={() => hasData && setSelectedDimension(t.dimension)}
+                    >
+                      <div className="text-xs text-slate-500 mb-2">
+                        {WEAKNESS_DIMENSION_LABELS[t.dimension]}
+                        <span className="text-slate-300 ml-1">· {t.count}次</span>
+                      </div>
+                      {hasData ? (
+                        <>
+                          <div className="flex items-baseline gap-1.5 mb-2">
+                            <span className="text-sm text-slate-400">{t.pre.toFixed(1)}</span>
+                            <span className="text-slate-300 text-xs">→</span>
+                            <span className="text-sm font-semibold text-primary">{t.post.toFixed(1)}</span>
+                            {trend === 'up' && <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />}
+                            {trend === 'down' && <ArrowDownRight className="w-3.5 h-3.5 text-red-500" />}
+                            {trend === 'flat' && <Minus className="w-3.5 h-3.5 text-slate-400" />}
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map((i) => (
+                                <Star
+                                  key={i}
+                                  className={`w-2.5 h-2.5 ${
+                                    i <= Math.round(t.effect)
+                                      ? 'text-amber-400 fill-amber-400'
+                                      : 'text-slate-200'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-slate-400">效果 {t.effect.toFixed(1)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-xs text-slate-400">暂无完成数据</div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -889,11 +1013,22 @@ export default function Comparison() {
               <div className="space-y-2">
                 {storeTrainingItems.map((item) => {
                   const rec = storeRecordings.find((r) => r.id === item.recordingId)
+                  const followRec = item.followUpRecordingId
+                    ? storeRecordings.find((r) => r.id === item.followUpRecordingId)
+                    : null
                   const isEditing = editingTrainingId === item.id
+                  const isCompleting = completingTrainingId === item.id
+                  const delta =
+                    item.preScore !== null && item.postScore !== null ? item.postScore - item.preScore : null
+                  const trend = delta === null ? null : delta > 0.1 ? 'up' : delta < -0.1 ? 'down' : 'flat'
                   return (
                     <div
                       key={item.id}
-                      className="border border-slate-100 rounded-lg p-4 hover:bg-slate-50/50 transition-colors"
+                      className={`rounded-lg p-4 transition-colors ${
+                        item.recordingId === highlightRecordingId
+                          ? 'border-2 border-accent bg-accent/5 shadow-sm'
+                          : 'border border-slate-100 hover:bg-slate-50/50'
+                      }`}
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
@@ -911,6 +1046,14 @@ export default function Comparison() {
                             <span className="text-xs text-slate-500">{rec?.doctorCode ?? '—'}</span>
                             <span className="text-xs text-slate-400">·</span>
                             <span className="text-xs text-slate-400">{rec?.date ?? ''}</span>
+                            {item.status === 'completed' && (
+                              <span
+                                className="inline-block px-2 py-0.5 rounded text-[11px] font-medium text-white"
+                                style={{ backgroundColor: TRAINING_STATUS_COLORS[item.status] }}
+                              >
+                                {TRAINING_STATUS_LABELS[item.status]}
+                              </span>
+                            )}
                           </div>
                           {rec && (
                             <p className="text-xs text-slate-500 mb-2 line-clamp-1">
@@ -918,7 +1061,144 @@ export default function Comparison() {
                             </p>
                           )}
 
-                          {isEditing ? (
+                          {item.status === 'completed' && !isCompleting && (
+                            <div className="bg-emerald-50/60 border border-emerald-100 rounded-lg p-3 mb-2">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-400">评分：</span>
+                                  {[1, 2, 3, 4, 5].map((i) => (
+                                    <Star
+                                      key={i}
+                                      className={`w-3 h-3 ${
+                                        i <= (item.effectScore ?? 0)
+                                          ? 'text-amber-400 fill-amber-400'
+                                          : 'text-slate-200'
+                                      }`}
+                                    />
+                                  ))}
+                                </div>
+                                {delta !== null && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-slate-400">前后变化：</span>
+                                    <span className="text-slate-500">{item.preScore?.toFixed(1)} →</span>
+                                    <span className="font-semibold text-primary">
+                                      {item.postScore?.toFixed(1)}
+                                    </span>
+                                    {trend === 'up' && <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />}
+                                    {trend === 'down' && <ArrowDownRight className="w-3.5 h-3.5 text-red-500" />}
+                                    {trend === 'flat' && <Minus className="w-3.5 h-3.5 text-slate-400" />}
+                                  </div>
+                                )}
+                                {followRec && (
+                                  <div className="flex items-center gap-1">
+                                    <FileText className="w-3 h-3 text-slate-300" />
+                                    <span className="text-slate-400">复训录音：</span>
+                                    <span className="text-slate-600">{followRec.doctorCode} {followRec.date}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {item.resultNote && (
+                                <p className="text-xs text-slate-500 mt-2 pt-2 border-t border-emerald-100/50">
+                                  <span className="text-slate-400">复盘备注：</span>
+                                  {item.resultNote}
+                                </p>
+                              )}
+                              {item.completedAt && (
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                  完成时间：{new Date(item.completedAt).toLocaleString('zh-CN')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {isCompleting ? (
+                            <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="text-[11px] text-slate-400 mb-1 block">复训后满意度</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={5}
+                                    step={0.1}
+                                    value={completePostScore}
+                                    onChange={(e) => setCompletePostScore(Number(e.target.value))}
+                                    className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                  />
+                                  <p className="text-[10px] text-slate-400 mt-1">
+                                    培训前：{item.preScore?.toFixed(1) ?? '—'} 分
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-400 mb-1 block">关联复训录音</label>
+                                  <select
+                                    value={completeFollowUpId}
+                                    onChange={(e) => setCompleteFollowUpId(e.target.value)}
+                                    className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                                  >
+                                    <option value="">无 / 暂不关联</option>
+                                    {storeRecordings
+                                      .filter((r) => r.storeId === drillDownStoreId && r.id !== item.recordingId)
+                                      .map((r) => (
+                                        <option key={r.id} value={r.id}>
+                                          {r.doctorCode} · {SCENARIO_LABELS[r.scenario]} · {r.date}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-slate-400 mb-1 block">
+                                  效果评分（1-5）
+                                  <span className="ml-2 flex items-center gap-0.5 inline-flex align-middle">
+                                    {[1, 2, 3, 4, 5].map((i) => (
+                                      <button
+                                        key={i}
+                                        type="button"
+                                        onClick={() => setCompleteEffectScore(i)}
+                                        className="p-0"
+                                      >
+                                        <Star
+                                          className={`w-3.5 h-3.5 ${
+                                            i <= completeEffectScore
+                                              ? 'text-amber-400 fill-amber-400'
+                                              : 'text-slate-200 hover:text-amber-200'
+                                          }`}
+                                        />
+                                      </button>
+                                    ))}
+                                  </span>
+                                </label>
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-slate-400 mb-1 block">复盘备注</label>
+                                <textarea
+                                  value={completeResultNote}
+                                  onChange={(e) => setCompleteResultNote(e.target.value)}
+                                  rows={3}
+                                  placeholder="培训做了什么、效果如何、后续改进方向..."
+                                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                />
+                              </div>
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => setCompletingTrainingId(null)}
+                                  className="px-3 py-1.5 bg-slate-100 text-slate-500 rounded text-xs hover:bg-slate-200 transition-colors"
+                                >
+                                  <X className="w-3 h-3 inline mr-1" />
+                                  取消
+                                </button>
+                                <button
+                                  onClick={saveComplete}
+                                  disabled={!completeResultNote.trim()}
+                                  className="px-3 py-1.5 bg-primary text-white rounded text-xs font-medium hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <FileCheck2 className="w-3 h-3 inline mr-1" />
+                                  确认完成
+                                </button>
+                              </div>
+                            </div>
+                          ) : isEditing ? (
                             <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-100">
                               <div>
                                 <label className="text-[10px] text-slate-400 mb-1 block">负责人</label>
@@ -967,7 +1247,7 @@ export default function Comparison() {
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-3 text-xs">
+                            <div className="flex items-center gap-3 text-xs flex-wrap">
                               <div className="flex items-center gap-1">
                                 <User className="w-3 h-3 text-slate-300" />
                                 <span className="text-slate-600">{item.owner}</span>
@@ -976,16 +1256,27 @@ export default function Comparison() {
                                 <CalendarDays className="w-3 h-3 text-slate-300" />
                                 <span className="text-slate-600">{item.planDate}</span>
                               </div>
-                              <span
-                                className="inline-block px-2 py-0.5 rounded text-[11px] font-medium text-white"
-                                style={{ backgroundColor: TRAINING_STATUS_COLORS[item.status] }}
-                              >
-                                {TRAINING_STATUS_LABELS[item.status]}
-                              </span>
+                              {item.status !== 'completed' && (
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded text-[11px] font-medium text-white"
+                                  style={{ backgroundColor: TRAINING_STATUS_COLORS[item.status] }}
+                                >
+                                  {TRAINING_STATUS_LABELS[item.status]}
+                                </span>
+                              )}
                               {item.note && (
                                 <span className="text-slate-400 ml-2">备注：{item.note}</span>
                               )}
                               <div className="ml-auto flex items-center gap-1">
+                                {item.status !== 'completed' && (
+                                  <button
+                                    onClick={() => startComplete(item.id)}
+                                    className="px-2 py-1 text-[11px] text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors flex items-center gap-0.5"
+                                  >
+                                    <FileCheck2 className="w-3 h-3" />
+                                    回填结果
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => startEdit(item.id)}
                                   className="p-1.5 text-slate-400 hover:text-primary hover:bg-slate-100 rounded transition-colors"
@@ -1046,17 +1337,26 @@ export default function Comparison() {
               </div>
             </div>
             <div className="space-y-3">
-              {drillDownRecordings.map((rec) => {
+              {drillDownRecordings.map((rec, idx) => {
                 const latestAnn = getRecordingLatestAnnotation(rec.id)
                 const hasNegative = latestAnn?.tags.some(t => TAG_CATEGORY[t as TagType] === 'negative') ?? false
                 const tagsToShow = latestAnn?.tags ?? []
                 const isSelected = selectedRecordingIds.has(rec.id)
                 const inTraining = trainingItems.some((t) => t.recordingId === rec.id)
+                const isHighlight = rec.id === highlightRecordingId
                 return (
                   <div
                     key={rec.id}
+                    id={`drill-rec-${rec.id}`}
+                    ref={(el) => {
+                      if (isHighlight && el && idx === drillDownRecordings.findIndex((r) => r.id === highlightRecordingId)) {
+                        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200)
+                      }
+                    }}
                     className={`rounded-lg border p-4 transition-all hover:shadow-sm ${
-                      isSelected
+                      isHighlight
+                        ? 'border-2 border-accent ring-4 ring-accent/15 bg-accent/5'
+                        : isSelected
                         ? 'border-accent bg-accent/5'
                         : hasNegative ? 'border-red-100 bg-red-50/30' : 'border-slate-100'
                     }`}

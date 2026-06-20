@@ -5,7 +5,7 @@ import { stores } from '@/data/mockData'
 import {
   Search, Filter, Clock, Building2, User, FileText,
   Calendar, Tag, MessageSquare, ListFilter, X, BarChart3, List,
-  PieChart, TrendingUp, ChevronRight, ArrowRight,
+  PieChart, TrendingUp, ChevronRight, ArrowRight, Award, Sparkles,
 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
@@ -50,14 +50,25 @@ export default function Ledger() {
   const annotations = useStore((s) => s.annotations)
   const recordings = useStore((s) => s.recordings)
 
-  const state = (location.state as { filterStore?: string; filterScenario?: ScenarioType | 'all'; filterTag?: TagType | 'all'; filterKeyword?: string } | null) ?? {}
+  const state = (location.state as {
+    filterStore?: string
+    filterScenario?: ScenarioType | 'all'
+    filterTag?: TagType | 'all'
+    filterKeyword?: string
+    highlightAnnotationId?: string
+    highlightRecordingId?: string
+  } | null) ?? {}
 
-  const [tabMode, setTabMode] = useState<TabMode>('summary')
+  const [tabMode, setTabMode] = useState<TabMode>(
+    state.highlightAnnotationId || state.highlightRecordingId ? 'list' : 'summary'
+  )
   const [filterStore, setFilterStore] = useState<string>(state.filterStore ?? 'all')
   const [filterScenario, setFilterScenario] = useState<ScenarioType | 'all'>(state.filterScenario ?? 'all')
   const [filterTag, setFilterTag] = useState<TagType | 'all'>(state.filterTag ?? 'all')
   const [filterKeyword, setFilterKeyword] = useState(state.filterKeyword ?? '')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+  const [highlightAnnotationId] = useState<string | null>(state.highlightAnnotationId ?? null)
+  const [highlightRecordingId] = useState<string | null>(state.highlightRecordingId ?? null)
 
   const enrichedAnnotations = useMemo(() => {
     return annotations
@@ -108,6 +119,15 @@ export default function Ledger() {
       }))
       .sort((a, b) => b.count - a.count)
   }, [filteredAnnotations])
+
+  const negativeTagDistribution = useMemo(
+    () => tagDistribution.filter((t) => t.category === 'negative'),
+    [tagDistribution]
+  )
+  const positiveTagDistribution = useMemo(
+    () => tagDistribution.filter((t) => t.category === 'positive'),
+    [tagDistribution]
+  )
 
   const keywordRanking = useMemo(() => {
     const suggestions = filteredAnnotations.map((a) => a.suggestion).filter(Boolean)
@@ -393,19 +413,19 @@ export default function Ledger() {
       {tabMode === 'summary' ? (
         <div className="space-y-6">
           <div className="grid grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl shadow-sm p-6 col-span-2">
+            <div className="bg-white rounded-xl shadow-sm p-6 col-span-1">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <PieChart className="w-5 h-5 text-primary" />
+                  <PieChart className="w-5 h-5 text-red-500" />
                   <h3 className="font-serif text-lg font-semibold text-slate-700">问题标签占比</h3>
                 </div>
-                <span className="text-xs text-slate-400">点击标签查看明细</span>
+                <span className="text-xs text-slate-400">仅负面标签</span>
               </div>
-              {tagDistribution.length === 0 ? (
-                <div className="py-10 text-center text-sm text-slate-400">暂无标签数据</div>
+              {negativeTagDistribution.length === 0 ? (
+                <div className="py-10 text-center text-sm text-slate-400">暂无问题标签</div>
               ) : (
                 <div className="space-y-3">
-                  {tagDistribution.slice(0, 10).map((item) => (
+                  {negativeTagDistribution.slice(0, 10).map((item) => (
                     <div
                       key={item.tag}
                       onClick={() => handleTagClick(item.tag)}
@@ -413,26 +433,20 @@ export default function Ledger() {
                     >
                       <div className="flex items-center justify-between text-sm mb-1">
                         <div className="flex items-center gap-2">
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              item.category === 'positive' ? 'bg-emerald-500' : 'bg-red-500'
-                            }`}
-                          />
-                          <span className="text-slate-700 group-hover:text-primary transition-colors">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          <span className="text-slate-700 group-hover:text-red-600 transition-colors">
                             {item.label}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-slate-400 text-xs">{item.count}条</span>
                           <span className="text-slate-600 font-medium">{item.percent}%</span>
-                          <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-primary transition-colors" />
+                          <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-red-500 transition-colors" />
                         </div>
                       </div>
                       <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all group-hover:opacity-90 ${
-                            item.category === 'positive' ? 'bg-emerald-400' : 'bg-red-400'
-                          }`}
+                          className="h-full rounded-full bg-red-400 transition-all group-hover:opacity-90"
                           style={{ width: `${item.percent}%` }}
                         />
                       </div>
@@ -442,7 +456,7 @@ export default function Ledger() {
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="bg-white rounded-xl shadow-sm p-6 col-span-1">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-primary" />
@@ -471,6 +485,46 @@ export default function Ledger() {
                       {item.word}
                       <span className="text-[10px] opacity-60 ml-0.5">×{item.count}</span>
                     </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-6 col-span-1">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-emerald-500" />
+                  <h3 className="font-serif text-lg font-semibold text-slate-700">优秀亮点表现</h3>
+                </div>
+                <span className="text-xs text-slate-400">正向标签</span>
+              </div>
+              {positiveTagDistribution.length === 0 ? (
+                <div className="py-10 text-center text-sm text-slate-400">暂无正向标签</div>
+              ) : (
+                <div className="space-y-2.5">
+                  {positiveTagDistribution.slice(0, 8).map((item, idx) => (
+                    <div
+                      key={item.tag}
+                      onClick={() => handleTagClick(item.tag)}
+                      className="group flex items-center justify-between p-2 rounded-lg bg-emerald-50/60 hover:bg-emerald-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {idx < 3 ? (
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        ) : (
+                          <span className="w-3.5 h-3.5 rounded-full bg-emerald-500/10 text-[10px] text-emerald-700 flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                        )}
+                        <span className="text-xs font-medium text-emerald-800 truncate group-hover:text-emerald-600 transition-colors">
+                          {item.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[11px] text-emerald-600 font-semibold">{item.count}次</span>
+                        <ArrowRight className="w-3 h-3 text-emerald-300 group-hover:text-emerald-600 transition-colors" />
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -617,13 +671,33 @@ export default function Ledger() {
               <p className="text-xs text-slate-300 mt-1">试试调整筛选条件或清空搜索关键词</p>
             </div>
           ) : (
-            filteredAnnotations.map((item) => {
+            filteredAnnotations.map((item, idx) => {
               const rec = item.recording!
               const hasNegative = item.tags.some((t) => TAG_CATEGORY[t] === 'negative')
+              const isHighlight =
+                item.id === highlightAnnotationId || rec.id === highlightRecordingId
               return (
                 <div
                   key={item.id}
-                  className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow"
+                  id={`ledger-item-${item.id}`}
+                  ref={(el) => {
+                    if (
+                      isHighlight &&
+                      el &&
+                      idx ===
+                        filteredAnnotations.findIndex(
+                          (x) =>
+                            x.id === highlightAnnotationId || x.recording?.id === highlightRecordingId
+                        )
+                    ) {
+                      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200)
+                    }
+                  }}
+                  className={`rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow ${
+                    isHighlight
+                      ? 'ring-4 ring-accent/20 border-2 border-accent bg-white'
+                      : 'bg-white'
+                  }`}
                 >
                   <div className="flex items-start gap-5">
                     <div className="flex-1 min-w-0">

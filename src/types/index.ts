@@ -135,4 +135,10 @@ export interface TrainingItem {
   status: TrainingStatus
   note: string
   createdAt: string
+  resultNote: string
+  followUpRecordingId: string | null
+  effectScore: number | null
+  completedAt: string | null
+  preScore: number | null
+  postScore: number | null
 }
