@@ -3,7 +3,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
-import { stores, weeklyTrendData, weeklyIssueData } from '@/data/mockData'
+import { stores, weeklyTrendData, weeklyIssueData, DIMENSION_WEEKLY_DATA, WEEK_LABELS } from '@/data/mockData'
 import {
   SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY,
   WEAKNESS_DIMENSION_LABELS,
@@ -13,7 +13,7 @@ import { useStore } from '@/store/useStore'
 import {
   GitCompareArrows, TrendingUp, AlertTriangle, Award,
   ChevronRight, ChevronLeft, Target, Stethoscope,
-  BarChart3, User, Clock, Store,
+  BarChart3, User, Clock, Store, Sparkles,
 } from 'lucide-react'
 
 const STORE_COLORS: Record<string, string> = {
@@ -52,6 +52,7 @@ export default function Comparison() {
   const [selectedIds, setSelectedIds] = useState<string[]>(INITIAL_SELECTED)
   const [trendTab, setTrendTab] = useState<'satisfaction' | 'issues'>('satisfaction')
   const [drillDownStoreId, setDrillDownStoreId] = useState<string | null>(null)
+  const [selectedDimension, setSelectedDimension] = useState<WeaknessDimension | 'all'>('all')
 
   const storeRecordings = useStore((s) => s.recordings)
   const storeAnnotations = useStore((s) => s.annotations)
@@ -108,7 +109,12 @@ export default function Comparison() {
           }
         })
         if (relatedAnnotations.length === 0) {
-          scores[storeId][dim] = 3.0
+          const weeklyData = DIMENSION_WEEKLY_DATA[storeId]?.[dim]
+          if (weeklyData) {
+            scores[storeId][dim] = weeklyData[weeklyData.length - 1]
+          } else {
+            scores[storeId][dim] = 3.0
+          }
           return
         }
         const positiveCount = relatedAnnotations.filter((a) =>
@@ -148,6 +154,7 @@ export default function Comparison() {
       date: string
       isPositive: boolean
       summary: { patientConcern: string; doctorResponse: string; conversionResult: string }
+      annotationCreatedAt: string
     }[] = []
 
     const storeCases: Record<string, typeof cases> = {}
@@ -171,19 +178,23 @@ export default function Comparison() {
         date: rec.date,
         isPositive: hasPositive && !hasNegative,
         summary: rec.summary,
+        annotationCreatedAt: a.createdAt,
       }
 
       storeCases[rec.storeId].push(caseItem)
     })
 
     selectedIds.forEach((id) => {
-      const positive = storeCases[id].filter((c) => c.isPositive)
-      const negative = storeCases[id].filter((c) => !c.isPositive)
+      const sorted = [...storeCases[id]].sort(
+        (a, b) => new Date(b.annotationCreatedAt).getTime() - new Date(a.annotationCreatedAt).getTime()
+      )
+      const positive = sorted.filter((c) => c.isPositive)
+      const negative = sorted.filter((c) => !c.isPositive)
       const picked: typeof cases = []
 
-      if (positive.length > 0) picked.push(positive[0])
       if (negative.length > 0) picked.push(negative[0])
-      if (picked.length === 0 && storeCases[id].length > 0) picked.push(storeCases[id][0])
+      if (positive.length > 0) picked.push(positive[0])
+      if (picked.length === 0 && sorted.length > 0) picked.push(sorted[0])
 
       cases.push(...picked.slice(0, 2))
     })
@@ -214,29 +225,62 @@ export default function Comparison() {
     return alerts
   }, [selectedIds, dimensionScores])
 
-  const drillDownRecordings = useMemo(() => {
-    if (!drillDownStoreId) return []
-    const store = stores.find((s) => s.id === drillDownStoreId)
-    if (!store) return []
-    return storeRecordings
-      .filter((r) => r.storeId === drillDownStoreId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 8)
-  }, [drillDownStoreId, storeRecordings])
-
   const drillDownDimensionTrend = useMemo(() => {
     if (!drillDownStoreId) return []
-    const weeks = weeklyTrendData.map((d) => d.week)
-    return DIMENSION_KEYS.map((dim) => {
-      const baseScore = dimensionScores[drillDownStoreId]?.[dim] ?? 3.0
-      return {
-        dimension: WEAKNESS_DIMENSION_LABELS[dim],
-        ...Object.fromEntries(
-          weeks.map((week, i) => [week, Math.max(1, Math.min(5, baseScore + (Math.random() - 0.5) * 0.8 - 0.3 + i * 0.1))])
-        ),
-      }
-    })
-  }, [drillDownStoreId, dimensionScores])
+    const storeDimData = DIMENSION_WEEKLY_DATA[drillDownStoreId]
+    if (!storeDimData) return []
+
+    if (selectedDimension === 'all') {
+      return WEEK_LABELS.map((week, idx) => {
+        const entry: Record<string, string | number> = { week }
+        DIMENSION_KEYS.forEach((dim) => {
+          entry[WEAKNESS_DIMENSION_LABELS[dim]] = storeDimData[dim]?.[idx] ?? 3.0
+        })
+        return entry
+      })
+    } else {
+      const scores = storeDimData[selectedDimension] ?? []
+      return WEEK_LABELS.map((week, idx) => ({
+        week,
+        [WEAKNESS_DIMENSION_LABELS[selectedDimension]]: scores[idx] ?? 3.0,
+      }))
+    }
+  }, [drillDownStoreId, selectedDimension])
+
+  const drillDownRecordings = useMemo(() => {
+    if (!drillDownStoreId) return []
+    const dimTags = selectedDimension === 'all' ? [] : DIMENSION_TAGS[selectedDimension]
+
+    const annotatedRecs = storeRecordings
+      .filter((r) => r.storeId === drillDownStoreId && r.isAnnotated)
+      .filter((r) => {
+        if (dimTags.length === 0) return true
+        const recAnnotations = storeAnnotations.filter((a) => a.recordingId === r.id)
+        return recAnnotations.some((a) => a.tags.some((t) => dimTags.includes(t as TagType)))
+      })
+      .sort((a, b) => {
+        const aLatestAnn = storeAnnotations
+          .filter((ann) => ann.recordingId === a.id)
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0]
+        const bLatestAnn = storeAnnotations
+          .filter((ann) => ann.recordingId === b.id)
+          .sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime())[0]
+        const aTime = aLatestAnn ? new Date(aLatestAnn.createdAt).getTime() : 0
+        const bTime = bLatestAnn ? new Date(bLatestAnn.createdAt).getTime() : 0
+        return bTime - aTime
+      })
+      .slice(0, 8)
+
+    if (annotatedRecs.length >= 8) return annotatedRecs
+
+    const otherRecs = storeRecordings
+      .filter((r) => r.storeId === drillDownStoreId && !r.isAnnotated)
+      .filter((r) => !annotatedRecs.some((ar) => ar.id === r.id))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 8 - annotatedRecs.length)
+
+    return [...annotatedRecs, ...otherRecs]
+  }, [drillDownStoreId, selectedDimension, storeRecordings, storeAnnotations])
 
   const selectedStores = useMemo(
     () => stores.filter((s) => selectedIds.includes(s.id)),
@@ -248,6 +292,13 @@ export default function Comparison() {
     [drillDownStoreId]
   )
 
+  const getRecordingLatestAnnotation = (recordingId: string) => {
+    const anns = storeAnnotations
+      .filter((a) => a.recordingId === recordingId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    return anns[0] ?? null
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
@@ -257,7 +308,7 @@ export default function Comparison() {
         </div>
         {drillDownStore && (
           <button
-            onClick={() => setDrillDownStoreId(null)}
+            onClick={() => { setDrillDownStoreId(null); setSelectedDimension('all') }}
             className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -508,7 +559,7 @@ export default function Comparison() {
             <div className="flex items-center gap-3 mb-5">
               <Award className="w-5 h-5 text-primary" />
               <h2 className="font-serif text-lg font-semibold text-slate-700">典型案例</h2>
-              <span className="text-xs text-slate-400">（仅展示医生编码，不公开排名）</span>
+              <span className="text-xs text-slate-400">（最新标注优先，仅展示医生编码）</span>
             </div>
             {typicalCases.length === 0 ? (
               <div className="text-center py-8 text-slate-400 text-sm">暂无案例数据</div>
@@ -575,7 +626,7 @@ export default function Comparison() {
                 {trainingAlerts.map((alert, idx) => (
                   <div
                     key={idx}
-                    onClick={() => setDrillDownStoreId(alert.storeId)}
+                    onClick={() => { setDrillDownStoreId(alert.storeId); setSelectedDimension(alert.dimension ?? 'all') }}
                     className="rounded-lg border-l-4 border-l-amber-500 bg-gradient-to-r from-amber-50 to-orange-50 p-4 flex items-start gap-3 cursor-pointer hover:shadow-sm transition-shadow"
                   >
                     <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
@@ -606,15 +657,54 @@ export default function Comparison() {
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center gap-3 mb-5">
               <Target className="w-5 h-5 text-primary" />
-              <h3 className="font-serif text-lg font-semibold text-slate-700">薄弱项维度得分</h3>
+              <h3 className="font-serif text-lg font-semibold text-slate-700">薄弱项维度诊断</h3>
+              <span className="text-xs text-slate-400">（点击维度可查看趋势和相关案例）</span>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-5">
+              <button
+                onClick={() => setSelectedDimension('all')}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                  selectedDimension === 'all'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                全部维度
+              </button>
+              {DIMENSION_KEYS.map((dim) => {
+                const score = dimensionScores[drillDownStoreId]?.[dim] ?? 0
+                const isWeak = score < 3.2
+                const isActive = selectedDimension === dim
+                return (
+                  <button
+                    key={dim}
+                    onClick={() => setSelectedDimension(dim)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
+                      isActive
+                        ? isWeak
+                          ? 'bg-orange-500 text-white shadow-sm'
+                          : 'bg-emerald-500 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {WEAKNESS_DIMENSION_LABELS[dim]}
+                    <span className={`text-xs ${isActive ? 'text-white/90' : 'text-slate-400'}`}>
+                      {score.toFixed(1)}
+                    </span>
+                    {isWeak && !isActive && (
+                      <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    )}
+                  </button>
+                )
+              })}
             </div>
             <div className="space-y-4">
-              {DIMENSION_KEYS.map((dim) => {
+              {(selectedDimension === 'all' ? DIMENSION_KEYS : [selectedDimension]).map((dim) => {
                 const score = dimensionScores[drillDownStoreId]?.[dim] ?? 0
                 const isWeak = score < 3.2
                 return (
                   <div key={dim} className="flex items-center gap-4">
-                    <span className="text-sm text-slate-600 w-24 shrink-0">
+                    <span className="text-sm text-slate-600 w-28 shrink-0">
                       {WEAKNESS_DIMENSION_LABELS[dim]}
                     </span>
                     <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
@@ -641,14 +731,21 @@ export default function Comparison() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center gap-3 mb-5">
-              <TrendingUp className="w-5 h-5 text-primary" />
-              <h3 className="font-serif text-lg font-semibold text-slate-700">薄弱项趋势</h3>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                <h3 className="font-serif text-lg font-semibold text-slate-700">
+                  {selectedDimension === 'all' ? '各维度周趋势' : `${WEAKNESS_DIMENSION_LABELS[selectedDimension]} · 周趋势`}
+                </h3>
+              </div>
+              <span className="text-xs text-slate-400">
+                {selectedDimension === 'all' ? '点击上方维度可单独查看' : '基于历史标注数据统计'}
+              </span>
             </div>
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={300}>
               <LineChart data={drillDownDimensionTrend} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="dimension" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="week" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis
                   tick={{ fontSize: 12 }}
                   axisLine={false}
@@ -662,17 +759,19 @@ export default function Comparison() {
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                   }}
                 />
-                <Legend />
-                {weeklyTrendData.map((_, i) => {
-                  const colors = ['#0D9488', '#F97316', '#8B5CF6', '#3B82F6', '#EC4899', '#10B981']
+                {selectedDimension === 'all' && <Legend />}
+                {(selectedDimension === 'all' ? DIMENSION_KEYS : [selectedDimension]).map((dim, idx) => {
+                  const colors = ['#0D9488', '#F97316', '#3B82F6', '#8B5CF6', '#EC4899']
+                  const color = selectedDimension === 'all' ? colors[idx] : STORE_COLORS[drillDownStoreId] ?? '#0D9488'
                   return (
                     <Line
-                      key={`week-${i}`}
+                      key={dim}
                       type="monotone"
-                      dataKey={`W${i + 1}`}
-                      stroke={colors[i % colors.length]}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
+                      dataKey={WEAKNESS_DIMENSION_LABELS[dim]}
+                      stroke={color}
+                      strokeWidth={selectedDimension === 'all' ? 2 : 3}
+                      dot={{ r: 4, fill: color }}
+                      activeDot={{ r: 6 }}
                     />
                   )
                 })}
@@ -681,19 +780,25 @@ export default function Comparison() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center gap-3 mb-5">
-              <Stethoscope className="w-5 h-5 text-primary" />
-              <h3 className="font-serif text-lg font-semibold text-slate-700">代表接诊记录</h3>
-              <span className="text-xs text-slate-400">（共 {storeRecordings.filter(r => r.storeId === drillDownStoreId).length} 条，展示最近8条）</span>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <Stethoscope className="w-5 h-5 text-primary" />
+                <h3 className="font-serif text-lg font-semibold text-slate-700">
+                  {selectedDimension === 'all' ? '代表接诊记录' : `${WEAKNESS_DIMENSION_LABELS[selectedDimension]} · 相关案例`}
+                </h3>
+              </div>
+              <span className="text-xs text-slate-400">
+                {selectedDimension === 'all'
+                  ? `共 ${storeRecordings.filter(r => r.storeId === drillDownStoreId).length} 条，最新标注优先`
+                  : `筛选到 ${drillDownRecordings.length} 条相关记录`
+                }
+              </span>
             </div>
             <div className="space-y-3">
               {drillDownRecordings.map((rec) => {
-                const hasNegative = storeAnnotations.some(a =>
-                  a.recordingId === rec.id && a.tags.some(t => TAG_CATEGORY[t as TagType] === 'negative')
-                )
-                const hasPositive = storeAnnotations.some(a =>
-                  a.recordingId === rec.id && a.tags.some(t => TAG_CATEGORY[t as TagType] === 'positive')
-                )
+                const latestAnn = getRecordingLatestAnnotation(rec.id)
+                const hasNegative = latestAnn?.tags.some(t => TAG_CATEGORY[t as TagType] === 'negative') ?? false
+                const tagsToShow = latestAnn?.tags ?? []
                 return (
                   <div
                     key={rec.id}
@@ -703,7 +808,7 @@ export default function Comparison() {
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span
                             className="inline-block px-2 py-0.5 rounded-full text-xs font-medium text-white"
                             style={{ backgroundColor: SCENARIO_COLORS[rec.scenario] }}
@@ -722,8 +827,14 @@ export default function Comparison() {
                           }`}>
                             {rec.satisfactionScore.toFixed(1)}分
                           </span>
+                          {rec.isAnnotated && latestAnn && (
+                            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              已标注
+                            </span>
+                          )}
                         </div>
-                        <div className="grid grid-cols-3 gap-3 text-xs">
+                        <div className="grid grid-cols-3 gap-3 text-xs mb-3">
                           <div className="bg-slate-50 rounded p-2">
                             <span className="text-orange-600 font-medium">患者顾虑：</span>
                             <span className="text-slate-500 ml-1">{rec.summary.patientConcern}</span>
@@ -737,20 +848,30 @@ export default function Comparison() {
                             <span className="text-slate-500 ml-1">{rec.summary.conversionResult}</span>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5 mt-3">
-                          {storeAnnotations.filter(a => a.recordingId === rec.id).flatMap(a => a.tags).slice(0, 5).map((tag) => (
-                            <span
-                              key={tag}
-                              className={`inline-block px-2 py-0.5 rounded text-[11px] ${
-                                TAG_CATEGORY[tag as TagType] === 'positive'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-red-50 text-red-600'
-                              }`}
-                            >
-                              {TAG_LABELS[tag as TagType]}
-                            </span>
-                          ))}
-                        </div>
+                        {tagsToShow.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tagsToShow.slice(0, 6).map((tag) => (
+                              <span
+                                key={tag}
+                                className={`inline-block px-2 py-0.5 rounded text-[11px] ${
+                                  TAG_CATEGORY[tag as TagType] === 'positive'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-red-50 text-red-600'
+                                }`}
+                              >
+                                {TAG_LABELS[tag as TagType]}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {latestAnn?.suggestion && (
+                          <div className="mt-2 pt-2 border-t border-slate-100">
+                            <p className="text-xs text-slate-500">
+                              <span className="text-amber-600 font-medium">改进建议：</span>
+                              {latestAnn.suggestion}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

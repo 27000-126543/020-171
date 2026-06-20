@@ -271,3 +271,50 @@ export const weeklyIssueData = [
   { week: 'W5', s1: 2, s2: 5, s3: 4, s4: 8, s5: 4, s6: 7 },
   { week: 'W6', s1: 1, s2: 4, s3: 3, s4: 7, s5: 3, s6: 5 },
 ]
+
+export const DIMENSION_WEEKLY_DATA: Record<string, Record<string, number[]>> = {
+  s1: {
+    child_comfort: [4.2, 4.4, 4.3, 4.5, 4.6, 4.7],
+    high_price_explanation: [4.0, 4.2, 3.9, 4.3, 4.4, 4.5],
+    followup_guidance: [3.8, 4.0, 4.1, 4.2, 4.3, 4.5],
+    risk_disclosure: [4.5, 4.4, 4.6, 4.5, 4.7, 4.6],
+    value_delivery: [4.3, 4.5, 4.4, 4.6, 4.5, 4.7],
+  },
+  s2: {
+    child_comfort: [3.5, 3.2, 3.4, 3.3, 3.6, 3.8],
+    high_price_explanation: [2.8, 3.0, 2.9, 3.1, 3.3, 3.5],
+    followup_guidance: [3.0, 2.8, 3.2, 3.0, 3.4, 3.6],
+    risk_disclosure: [3.8, 3.6, 3.9, 3.7, 4.0, 4.1],
+    value_delivery: [3.2, 3.4, 3.3, 3.5, 3.6, 3.7],
+  },
+  s3: {
+    child_comfort: [4.0, 4.1, 3.9, 4.2, 4.3, 4.4],
+    high_price_explanation: [3.8, 3.9, 4.0, 4.1, 4.2, 4.3],
+    followup_guidance: [3.5, 3.7, 3.6, 3.9, 4.0, 4.2],
+    risk_disclosure: [4.2, 4.3, 4.1, 4.4, 4.3, 4.5],
+    value_delivery: [4.0, 4.2, 4.1, 4.3, 4.5, 4.4],
+  },
+  s4: {
+    child_comfort: [2.5, 2.3, 2.6, 2.4, 2.7, 2.9],
+    high_price_explanation: [2.2, 2.0, 2.3, 2.1, 2.5, 2.7],
+    followup_guidance: [2.0, 2.2, 2.1, 2.4, 2.3, 2.6],
+    risk_disclosure: [2.8, 2.6, 2.9, 2.7, 3.0, 3.2],
+    value_delivery: [2.4, 2.3, 2.5, 2.6, 2.8, 3.0],
+  },
+  s5: {
+    child_comfort: [3.8, 3.9, 3.7, 4.0, 4.1, 4.2],
+    high_price_explanation: [3.5, 3.6, 3.4, 3.8, 3.9, 4.0],
+    followup_guidance: [3.2, 3.4, 3.3, 3.6, 3.7, 3.9],
+    risk_disclosure: [4.0, 4.1, 3.9, 4.2, 4.3, 4.2],
+    value_delivery: [3.6, 3.8, 3.7, 3.9, 4.1, 4.2],
+  },
+  s6: {
+    child_comfort: [3.3, 3.4, 3.2, 3.5, 3.6, 3.8],
+    high_price_explanation: [3.0, 3.1, 2.9, 3.2, 3.4, 3.6],
+    followup_guidance: [2.8, 3.0, 2.7, 3.1, 3.3, 3.5],
+    risk_disclosure: [3.5, 3.4, 3.6, 3.7, 3.8, 3.9],
+    value_delivery: [3.2, 3.3, 3.4, 3.5, 3.7, 3.8],
+  },
+}
+
+export const WEEK_LABELS = ['第1周', '第2周', '第3周', '第4周', '第5周', '第6周']

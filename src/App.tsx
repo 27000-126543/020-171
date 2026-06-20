@@ -4,6 +4,7 @@ import Dashboard from '@/pages/Dashboard'
 import Annotation from '@/pages/Annotation'
 import Comparison from '@/pages/Comparison'
 import Library from '@/pages/Library'
+import Ledger from '@/pages/Ledger'
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/annotation" element={<Annotation />} />
+          <Route path="/ledger" element={<Ledger />} />
           <Route path="/comparison" element={<Comparison />} />
           <Route path="/library" element={<Library />} />
         </Route>

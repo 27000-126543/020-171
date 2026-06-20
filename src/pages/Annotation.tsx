@@ -1,7 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useStore } from '@/store/useStore'
 import { SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY, type TagType, type ScenarioType } from '@/types'
-import { Play, Pause, SkipForward, ChevronRight, Check, Clock, User, Building2, FileText, Send, AlertCircle, ThumbsUp, HelpCircle, Stethoscope, Target } from 'lucide-react'
+import { stores } from '@/data/mockData'
+import {
+  Play, Pause, SkipForward, ChevronRight, Check, Clock, User, Building2,
+  FileText, Send, AlertCircle, ThumbsUp, HelpCircle, Stethoscope, Target,
+  Filter, Search, ChevronDown, ListOrdered, SkipBack,
+} from 'lucide-react'
 
 const SCENARIO_COLORS: Record<ScenarioType, string> = {
   implant: '#0D9488',
@@ -11,6 +16,8 @@ const SCENARIO_COLORS: Record<ScenarioType, string> = {
 }
 
 const QUICK_TEMPLATES = ['价格需分项说明', '需补充复诊安排', '知情同意需逐条说明', '避免绝对化承诺']
+
+type StatusFilter = 'all' | 'pending' | 'annotated'
 
 function generateWaveformHeights(seed: string): number[] {
   const bars: number[] = []
@@ -51,6 +58,29 @@ export default function Annotation() {
   const [playProgress, setPlayProgress] = useState(0)
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1)
   const [showToast, setShowToast] = useState(false)
+  const [toastMessage, setToastMessage] = useState('标注提交成功')
+
+  const [filterStore, setFilterStore] = useState<string>('all')
+  const [filterScenario, setFilterScenario] = useState<ScenarioType | 'all'>('all')
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('pending')
+  const [filterDoctor, setFilterDoctor] = useState('')
+  const [filterExpanded, setFilterExpanded] = useState(true)
+
+  const filteredRecordings = useMemo(() => {
+    return recordings.filter((r) => {
+      if (filterStore !== 'all' && r.storeId !== filterStore) return false
+      if (filterScenario !== 'all' && r.scenario !== filterScenario) return false
+      if (filterStatus === 'pending' && r.isAnnotated) return false
+      if (filterStatus === 'annotated' && !r.isAnnotated) return false
+      if (filterDoctor && !r.doctorCode.toLowerCase().includes(filterDoctor.toLowerCase())) return false
+      return true
+    })
+  }, [recordings, filterStore, filterScenario, filterStatus, filterDoctor])
+
+  const pendingRecordings = useMemo(
+    () => filteredRecordings.filter((r) => !r.isAnnotated),
+    [filteredRecordings]
+  )
 
   const selectedRecording = useMemo(
     () => recordings.find((r) => r.id === currentRecordingId) ?? null,
@@ -92,6 +122,23 @@ export default function Annotation() {
 
   const canSubmit = selectedTags.size > 0 && suggestion.trim().length > 0
 
+  const goToNextPending = useCallback(() => {
+    const currentIndex = filteredRecordings.findIndex((r) => r.id === currentRecordingId)
+    const nextPending = filteredRecordings.findIndex(
+      (r, i) => i > currentIndex && !r.isAnnotated
+    )
+    if (nextPending !== -1) {
+      setCurrentRecording(filteredRecordings[nextPending].id)
+      return true
+    }
+    const firstPending = filteredRecordings.find((r) => !r.isAnnotated)
+    if (firstPending) {
+      setCurrentRecording(firstPending.id)
+      return true
+    }
+    return false
+  }, [filteredRecordings, currentRecordingId, setCurrentRecording])
+
   const handleSubmit = useCallback(() => {
     if (!currentRecordingId || !canSubmit) return
     addAnnotation(currentRecordingId, Array.from(selectedTags), suggestion.trim(), '当前质检员')
@@ -100,12 +147,19 @@ export default function Annotation() {
     setSuggestion('')
     setPlayProgress(0)
     setIsPlaying(false)
+
+    const hasNext = goToNextPending()
+    if (hasNext) {
+      setToastMessage('标注提交成功，已跳到下一条待标注')
+    } else {
+      setToastMessage('标注提交成功，当前筛选条件下没有更多待标注')
+    }
     setShowToast(true)
-  }, [currentRecordingId, canSubmit, selectedTags, suggestion, addAnnotation, markRecordingAnnotated])
+  }, [currentRecordingId, canSubmit, selectedTags, suggestion, addAnnotation, markRecordingAnnotated, goToNextPending])
 
   useEffect(() => {
     if (showToast) {
-      const timer = setTimeout(() => setShowToast(false), 2000)
+      const timer = setTimeout(() => setShowToast(false), 2500)
       return () => clearTimeout(timer)
     }
   }, [showToast])
@@ -142,69 +196,201 @@ export default function Annotation() {
       {showToast && (
         <div className="fixed top-6 right-6 z-50 flex items-center gap-2 bg-emerald-500 text-white px-5 py-3 rounded-lg shadow-lg animate-fade-in-up">
           <Check className="w-4 h-4" />
-          <span className="text-sm font-medium">标注提交成功</span>
+          <span className="text-sm font-medium">{toastMessage}</span>
         </div>
       )}
 
       <div className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-serif text-lg font-semibold text-slate-800">录音列表</h2>
-          <p className="text-xs text-slate-400 mt-1">共 {recordings.length} 条录音</p>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-serif text-lg font-semibold text-slate-800">录音列表</h2>
+            <button
+              onClick={() => setFilterExpanded(!filterExpanded)}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <Filter className="w-3.5 h-3.5" />
+              筛选
+              <ChevronDown className={`w-3 h-3 transition-transform ${filterExpanded ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">
+            共 {filteredRecordings.length} 条 · 待标注 {pendingRecordings.length} 条
+          </p>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {recordings.map((rec) => {
-            const isSelected = rec.id === currentRecordingId
-            return (
-              <div
-                key={rec.id}
-                onClick={() => setCurrentRecording(rec.id)}
-                className={`px-4 py-3 cursor-pointer border-b border-slate-50 border-l-[3px] transition-colors ${
-                  isSelected
-                    ? 'bg-primary-50 border-l-primary'
-                    : 'border-l-transparent hover:bg-slate-50'
-                }`}
+
+        {filterExpanded && (
+          <div className="px-4 py-3 border-b border-slate-100 space-y-2.5 bg-slate-50/50">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">门店</label>
+              <select
+                value={filterStore}
+                onChange={(e) => setFilterStore(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               >
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 shrink-0">
-                    {rec.isAnnotated ? (
-                      <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center">
-                        <Check className="w-3 h-3 text-emerald-600" />
-                      </div>
-                    ) : (
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-orange-400" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white shrink-0"
-                        style={{ backgroundColor: SCENARIO_COLORS[rec.scenario] }}
-                      >
-                        {SCENARIO_LABELS[rec.scenario]}
-                      </span>
-                      <span className="text-sm text-slate-700 font-medium truncate">
-                        {rec.storeName}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 truncate mb-1 leading-relaxed">
-                      {rec.summary.patientConcern}
-                    </p>
-                    <div className="flex items-center gap-3 text-xs text-slate-400">
-                      <span>{rec.doctorCode}</span>
-                      <span className="flex items-center gap-0.5">
-                        <Clock className="w-3 h-3" />
-                        {formatDuration(rec.duration)}
-                      </span>
-                      <span>{rec.date}</span>
-                    </div>
-                  </div>
-                  {isSelected && <ChevronRight className="w-4 h-4 text-primary shrink-0 mt-2" />}
-                </div>
+                <option value="all">全部门店</option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">项目类型</label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setFilterScenario('all')}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    filterScenario === 'all'
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  全部
+                </button>
+                {(Object.keys(SCENARIO_LABELS) as ScenarioType[]).map((sc) => (
+                  <button
+                    key={sc}
+                    onClick={() => setFilterScenario(sc)}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                      filterScenario === sc
+                        ? 'text-white'
+                        : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                    style={{
+                      backgroundColor: filterScenario === sc ? SCENARIO_COLORS[sc] : undefined,
+                    }}
+                  >
+                    {SCENARIO_LABELS[sc]}
+                  </button>
+                ))}
               </div>
-            )
-          })}
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">标注状态</label>
+              <div className="flex gap-1.5">
+                {([
+                  { value: 'pending', label: '待标注' },
+                  { value: 'annotated', label: '已标注' },
+                  { value: 'all', label: '全部' },
+                ] as const).map((item) => (
+                  <button
+                    key={item.value}
+                    onClick={() => setFilterStatus(item.value)}
+                    className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                      filterStatus === item.value
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">医生编码</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={filterDoctor}
+                  onChange={(e) => setFilterDoctor(e.target.value)}
+                  placeholder="输入编码搜索..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setFilterStore('all')
+                setFilterScenario('all')
+                setFilterStatus('pending')
+                setFilterDoctor('')
+              }}
+              className="w-full py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              重置筛选条件
+            </button>
+          </div>
+        )}
+
+        {pendingRecordings.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-orange-50/50">
+            <button
+              onClick={() => {
+                if (pendingRecordings.length > 0) {
+                  setCurrentRecording(pendingRecordings[0].id)
+                }
+              }}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-colors"
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+              开始批量标注（{pendingRecordings.length}条待处理）
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          {filteredRecordings.length === 0 ? (
+            <div className="py-12 text-center">
+              <FileText className="w-10 h-10 text-slate-200 mx-auto mb-2" />
+              <p className="text-sm text-slate-400">没有符合条件的录音</p>
+              <p className="text-xs text-slate-300 mt-1">试试调整筛选条件</p>
+            </div>
+          ) : (
+            filteredRecordings.map((rec) => {
+              const isSelected = rec.id === currentRecordingId
+              return (
+                <div
+                  key={rec.id}
+                  onClick={() => setCurrentRecording(rec.id)}
+                  className={`px-4 py-3 cursor-pointer border-b border-slate-50 border-l-[3px] transition-colors ${
+                    isSelected
+                      ? 'bg-primary-50 border-l-primary'
+                      : 'border-l-transparent hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 shrink-0">
+                      {rec.isAnnotated ? (
+                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                        </div>
+                      ) : (
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-orange-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white shrink-0"
+                          style={{ backgroundColor: SCENARIO_COLORS[rec.scenario] }}
+                        >
+                          {SCENARIO_LABELS[rec.scenario]}
+                        </span>
+                        <span className="text-sm text-slate-700 font-medium truncate">
+                          {rec.storeName}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 truncate mb-1 leading-relaxed">
+                        {rec.summary.patientConcern}
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-slate-400">
+                        <span>{rec.doctorCode}</span>
+                        <span className="flex items-center gap-0.5">
+                          <Clock className="w-3 h-3" />
+                          {formatDuration(rec.duration)}
+                        </span>
+                        <span>{rec.date}</span>
+                      </div>
+                    </div>
+                    {isSelected && <ChevronRight className="w-4 h-4 text-primary shrink-0 mt-2" />}
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 
@@ -217,6 +403,41 @@ export default function Annotation() {
           </div>
         ) : (
           <div className="p-8 space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const idx = filteredRecordings.findIndex((r) => r.id === currentRecordingId)
+                    if (idx > 0) setCurrentRecording(filteredRecordings[idx - 1].id)
+                  }}
+                  className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <div className="text-sm text-slate-400">
+                  第 {filteredRecordings.findIndex((r) => r.id === currentRecordingId) + 1} / {filteredRecordings.length} 条
+                </div>
+                <button
+                  onClick={() => {
+                    const idx = filteredRecordings.findIndex((r) => r.id === currentRecordingId)
+                    if (idx < filteredRecordings.length - 1) setCurrentRecording(filteredRecordings[idx + 1].id)
+                  }}
+                  className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+              {pendingRecordings.length > 0 && (
+                <button
+                  onClick={goToNextPending}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-colors"
+                >
+                  下一条待标注
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
             <div className="bg-white rounded-xl shadow-sm p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Stethoscope className="w-5 h-5 text-primary" />

@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Tag, GitCompareArrows, BookOpen, Stethoscope } from 'lucide-react'
+import { LayoutDashboard, Tag, GitCompareArrows, BookOpen, Stethoscope, ClipboardList } from 'lucide-react'
 
 const navItems = [
   { path: '/', label: '质检看板', icon: LayoutDashboard },
   { path: '/annotation', label: '话术标注', icon: Tag },
+  { path: '/ledger', label: '标注台账', icon: ClipboardList },
   { path: '/comparison', label: '门店对比', icon: GitCompareArrows },
   { path: '/library', label: '话术库', icon: BookOpen },
 ]
