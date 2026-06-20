@@ -1,6 +1,6 @@
 import { useMemo, useState, Fragment } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts'
-import { stores, recordings, annotations, scriptEntries } from '@/data/mockData'
+import { stores, scriptEntries } from '@/data/mockData'
 import { SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY, type ScenarioType, type TagType } from '@/types'
 import { useStore } from '@/store/useStore'
 import { ClipboardList, AlertTriangle, FileAudio, BookPlus } from 'lucide-react'
@@ -59,7 +59,7 @@ export default function Dashboard() {
 
   const heatmapData = useMemo(() => {
     const tagTypes = Object.keys(TAG_LABELS) as TagType[]
-    const recordingMap = new Map(recordings.map((r) => [r.id, r]))
+    const recordingMap = new Map(storeRecordings.map((r) => [r.id, r]))
     const matrix: Record<string, Record<string, number>> = {}
     stores.forEach((s) => {
       matrix[s.id] = {}
@@ -87,7 +87,7 @@ export default function Dashboard() {
   }, [storeAnnotations])
 
   const recentAnnotations = useMemo(() => {
-    const recordingMap = new Map(recordings.map((r) => [r.id, r]))
+    const recordingMap = new Map(storeRecordings.map((r) => [r.id, r]))
     return [...storeAnnotations]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 10)

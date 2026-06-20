@@ -1,5 +1,15 @@
 export type ScenarioType = 'implant' | 'orthodontic' | 'pediatric' | 'cleaning'
 
+export type WeaknessDimension = 'child_comfort' | 'high_price_explanation' | 'followup_guidance' | 'risk_disclosure' | 'value_delivery'
+
+export const WEAKNESS_DIMENSION_LABELS: Record<WeaknessDimension, string> = {
+  child_comfort: '儿童安抚',
+  high_price_explanation: '高价项目解释',
+  followup_guidance: '复诊引导',
+  risk_disclosure: '风险告知',
+  value_delivery: '价值传递',
+}
+
 export type TagType =
   | 'price_unclear'
   | 'risk_informed'
@@ -22,6 +32,12 @@ export interface Store {
   satisfactionAvg: number
 }
 
+export interface RecordingSummary {
+  patientConcern: string
+  doctorResponse: string
+  conversionResult: string
+}
+
 export interface Recording {
   id: string
   storeId: string
@@ -34,6 +50,7 @@ export interface Recording {
   date: string
   satisfactionScore: number
   isAnnotated: boolean
+  summary: RecordingSummary
 }
 
 export interface Annotation {

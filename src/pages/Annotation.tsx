@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useStore } from '@/store/useStore'
 import { SCENARIO_LABELS, TAG_LABELS, TAG_CATEGORY, type TagType, type ScenarioType } from '@/types'
-import { Play, Pause, SkipForward, ChevronRight, Check, Clock, User, Building2, FileText, Send, AlertCircle, ThumbsUp } from 'lucide-react'
+import { Play, Pause, SkipForward, ChevronRight, Check, Clock, User, Building2, FileText, Send, AlertCircle, ThumbsUp, HelpCircle, Stethoscope, Target } from 'lucide-react'
 
 const SCENARIO_COLORS: Record<ScenarioType, string> = {
   implant: '#0D9488',
@@ -90,16 +90,18 @@ export default function Annotation() {
     })
   }, [])
 
+  const canSubmit = selectedTags.size > 0 && suggestion.trim().length > 0
+
   const handleSubmit = useCallback(() => {
-    if (!currentRecordingId || selectedTags.size === 0) return
-    addAnnotation(currentRecordingId, Array.from(selectedTags), suggestion, '当前质检员')
+    if (!currentRecordingId || !canSubmit) return
+    addAnnotation(currentRecordingId, Array.from(selectedTags), suggestion.trim(), '当前质检员')
     markRecordingAnnotated(currentRecordingId)
     setSelectedTags(new Set())
     setSuggestion('')
     setPlayProgress(0)
     setIsPlaying(false)
     setShowToast(true)
-  }, [currentRecordingId, selectedTags, suggestion, addAnnotation, markRecordingAnnotated])
+  }, [currentRecordingId, canSubmit, selectedTags, suggestion, addAnnotation, markRecordingAnnotated])
 
   useEffect(() => {
     if (showToast) {
@@ -186,6 +188,9 @@ export default function Annotation() {
                         {rec.storeName}
                       </span>
                     </div>
+                    <p className="text-xs text-slate-500 truncate mb-1 leading-relaxed">
+                      {rec.summary.patientConcern}
+                    </p>
                     <div className="flex items-center gap-3 text-xs text-slate-400">
                       <span>{rec.doctorCode}</span>
                       <span className="flex items-center gap-0.5">
@@ -213,7 +218,43 @@ export default function Annotation() {
         ) : (
           <div className="p-8 space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h2 className="font-serif text-xl font-bold text-slate-800 mb-4">录音详情</h2>
+              <div className="flex items-center gap-2 mb-4">
+                <Stethoscope className="w-5 h-5 text-primary" />
+                <h2 className="font-serif text-xl font-bold text-slate-800">接诊摘要</h2>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                <div className="bg-slate-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <HelpCircle className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-medium text-orange-700">患者顾虑</span>
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    {selectedRecording.summary.patientConcern}
+                  </p>
+                </div>
+                <div className="bg-teal-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Stethoscope className="w-4 h-4 text-teal-600" />
+                    <span className="text-sm font-medium text-teal-700">医生回应</span>
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    {selectedRecording.summary.doctorResponse}
+                  </p>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Target className="w-4 h-4 text-blue-500" />
+                    <span className="text-sm font-medium text-blue-700">转化结果</span>
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    {selectedRecording.summary.conversionResult}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="font-serif text-lg font-semibold text-slate-700 mb-4">基本信息</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div className="flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-slate-400" />
@@ -395,9 +436,9 @@ export default function Annotation() {
 
             <button
               onClick={handleSubmit}
-              disabled={selectedTags.size === 0}
+              disabled={!canSubmit}
               className={`w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 transition-all ${
-                selectedTags.size > 0
+                canSubmit
                   ? 'bg-primary hover:bg-primary-dark shadow-sm'
                   : 'bg-slate-300 cursor-not-allowed'
               }`}
@@ -405,6 +446,12 @@ export default function Annotation() {
               <Send className="w-4 h-4" />
               提交标注
             </button>
+            {!canSubmit && (
+              <p className="text-xs text-center text-slate-400 mt-2">
+                {selectedTags.size === 0 && '请选择至少一个标签'}
+                {selectedTags.size > 0 && suggestion.trim().length === 0 && '请填写改进建议'}
+              </p>
+            )}
 
             {recordingAnnotations.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm p-6">
